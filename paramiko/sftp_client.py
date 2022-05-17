@@ -758,7 +758,14 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
         with open(localpath, "rb") as fl:
             return self.putfo(fl, remotepath, file_size, callback, confirm)
 
-    def getfo(self, remotepath, fl, callback=None, prefetch=True):
+    def getfo(
+        self,
+        remotepath,
+        fl,
+        callback=None,
+        prefetch=True,
+        max_outstanding_prefetch_requests=None,
+    ):
         """
         Copy a remote file (``remotepath``) from the SFTP server and write to
         an open file or file-like object, ``fl``.  Any exception raised by
@@ -773,6 +780,10 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
             the bytes transferred so far and the total bytes to be transferred
         :param bool prefetch:
             controls whether prefetching is performed (default: True)
+        :param int max_outstanding_prefetch_requests:
+            Limit the number of outstanding requests instead of sending all
+            at once, to avoid problems with servers that drop requests when
+            their queue is full.
         :return: the `number <int>` of bytes written to the opened file object
 
         .. versionadded:: 1.10
@@ -782,12 +793,19 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
         file_size = self.stat(remotepath).st_size
         with self.open(remotepath, "rb") as fr:
             if prefetch:
-                fr.prefetch(file_size)
+                fr.prefetch(file_size, max_outstanding_prefetch_requests)
             return self._transfer_with_callback(
                 reader=fr, writer=fl, file_size=file_size, callback=callback
             )
 
-    def get(self, remotepath, localpath, callback=None, prefetch=True):
+    def get(
+        self,
+        remotepath,
+        localpath,
+        callback=None,
+        prefetch=True,
+        max_outstanding_prefetch_requests=None,
+    ):
         """
         Copy a remote file (``remotepath``) from the SFTP server to the local
         host as ``localpath``.  Any exception raised by operations will be
@@ -800,6 +818,10 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
             the bytes transferred so far and the total bytes to be transferred
         :param bool prefetch:
             controls whether prefetching is performed (default: True)
+        :param int max_outstanding_prefetch_requests:
+            Limit the number of outstanding requests instead of sending all
+            at once, to avoid problems with servers that drop requests when
+            their queue is full.
 
         .. versionadded:: 1.4
         .. versionchanged:: 1.7.4
@@ -808,7 +830,13 @@ class SFTPClient(BaseSFTP, ClosingContextManager):
             Added the ``prefetch`` keyword argument.
         """
         with open(localpath, "wb") as fl:
-            size = self.getfo(remotepath, fl, callback, prefetch)
+            size = self.getfo(
+                remotepath,
+                fl,
+                callback,
+                prefetch,
+                max_outstanding_prefetch_requests,
+            )
         s = os.stat(localpath)
         if s.st_size != size:
             raise IOError(
