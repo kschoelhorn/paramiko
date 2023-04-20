@@ -3,6 +3,7 @@ import builtins
 import os
 import struct
 import sys
+import time
 import unittest
 
 import pytest
@@ -172,3 +173,22 @@ def sha1_signing_unsupported():
 requires_sha1_signing = unittest.skipIf(
     sha1_signing_unsupported(), "SHA-1 signing not supported"
 )
+
+
+def wait_until(condition, *, timeout=2):
+    """
+    Wait until `condition()` no longer raises an `AssertionError` or until
+    `timeout` seconds have passed, which causes a `TimeoutError` to be raised.
+    """
+    deadline = time.time() + timeout
+
+    while True:
+        try:
+            condition()
+        except AssertionError as e:
+            if time.time() > deadline:
+                timeout_message = f"Condition not reached after {timeout}s"
+                raise TimeoutError(timeout_message) from e
+        else:
+            return
+        time.sleep(0.01)
