@@ -435,7 +435,7 @@ class SFTPFile(BufferedFile):
         """
         self.pipelined = pipelined
 
-    def prefetch(self, file_size=None, max_outstanding_requests=None):
+    def prefetch(self, file_size=None, max_concurrent_requests=None):
         """
         Pre-fetch the remaining contents of this file in anticipation of future
         `.read` calls.  If reading the entire file, pre-fetching can
@@ -454,10 +454,10 @@ class SFTPFile(BufferedFile):
             <https://github.com/paramiko/paramiko/pull/562>`_); as a
             workaround, one may call `stat` explicitly and pass its value in
             via this parameter.
-        :param int max_outstanding_requests:
-            Limit the number of outstanding requests instead of sending all
-            at once, to avoid problems with servers that drop requests when
-            their queue is full.
+        :param int max_concurrent_requests:
+            The maximum number of concurrent read requests to prefetch.
+            When this is ``None`` (the default), do not limit the number of
+            concurrent prefetch requests.
 
         .. versionadded:: 1.5.1
         .. versionchanged:: 1.16.0
@@ -477,9 +477,9 @@ class SFTPFile(BufferedFile):
             chunks.append((n, chunk))
             n += chunk
         if len(chunks) > 0:
-            self._start_prefetch(chunks, max_outstanding_requests)
+            self._start_prefetch(chunks, max_concurrent_requests)
 
-    def readv(self, chunks, max_outstanding_requests=None):
+    def readv(self, chunks, max_concurrent_prefetch_requests=None):
         """
         Read a set of blocks from the file by (offset, length).  This is more
         efficient than doing a series of `.seek` and `.read` calls, since the
@@ -489,10 +489,10 @@ class SFTPFile(BufferedFile):
         :param chunks:
             a list of ``(offset, length)`` tuples indicating which sections of
             the file to read
-        :param int max_outstanding_requests:
-            Limit the number of outstanding requests instead of sending all
-            at once, to avoid problems with servers that drop requests when
-            their queue is full.
+        :param int max_concurrent_prefetch_requests:
+            The maximum number of concurrent read requests to prefetch.
+            When this is ``None`` (the default), do not limit the number of
+            concurrent prefetch requests.
         :return: a list of blocks read, in the same order as in ``chunks``
 
         .. versionadded:: 1.5.4
@@ -516,7 +516,7 @@ class SFTPFile(BufferedFile):
                 offset += chunk_size
                 size -= chunk_size
 
-        self._start_prefetch(read_chunks, max_outstanding_requests)
+        self._start_prefetch(read_chunks, max_concurrent_prefetch_requests)
         # now we can just devolve to a bunch of read()s :)
         for x in chunks:
             self.seek(x[0])
@@ -530,27 +530,27 @@ class SFTPFile(BufferedFile):
         except:
             return 0
 
-    def _start_prefetch(self, chunks, max_outstanding_requests=None):
+    def _start_prefetch(self, chunks, max_concurrent_requests=None):
         self._prefetching = True
         self._prefetch_done = False
 
         t = threading.Thread(
             target=self._prefetch_thread,
-            args=(chunks, max_outstanding_requests),
+            args=(chunks, max_concurrent_requests),
         )
         t.daemon = True
         t.start()
 
-    def _prefetch_thread(self, chunks, max_outstanding_requests):
+    def _prefetch_thread(self, chunks, max_concurrent_requests):
         # do these read requests in a temporary thread because there may be
         # a lot of them, so it may block.
         for offset, length in chunks:
-            # Limit the number of outstanding requests in a busy-loop
-            if max_outstanding_requests is not None:
+            # Limit the number of concurrent requests in a busy-loop
+            if max_concurrent_requests is not None:
                 while True:
                     with self._prefetch_lock:
                         pf_len = len(self._prefetch_extents)
-                        if pf_len < max_outstanding_requests:
+                        if pf_len < max_concurrent_requests:
                             break
                     time.sleep(io_sleep)
 
